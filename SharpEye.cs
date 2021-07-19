@@ -146,6 +146,7 @@ namespace SharpEye
         }
         static void Main(string[] args)
         {
+            Console.Title = "Sharp Eye 1.0"
             string path;
             if (args.Length < 1)
                 path = AskForPath();
