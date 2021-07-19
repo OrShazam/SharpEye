@@ -31,9 +31,40 @@ namespace SharpEye
     }
     class Program
     {
-        private static void ScanWithAntivirus(string path)
+        private static void ScanFile(string path)
         {
-
+            Process scanProcess = new Process();
+            var mpcmdrun = new ProcessStartInfo(@"C:\Program Files\Windows Defender\MpCmdRun.exe")
+            {
+                Arguments = $"-Scan -ScanType 3 -File \"{path}\" -DisableRemediation -Trace -Level 0x10",
+                CreateNoWindow = true,
+                ErrorDialog = false,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                WindowStyle = ProcessWindowStyle.Hidden
+            };
+            scanProcess.StartInfo = mpcmdrun;
+            scanProcess.Start();
+            scanProcess.WaitForExit(30000);
+            if (!scanProcess.HasExited)
+            {
+                scanProcess.Kill();
+                Alert("ERROR: Failed to scan file - timed out 30000s.");
+                return;
+            }
+            string scanOutput;
+            while ((scanOutput = scanProcess.StandardOutput.ReadLine()) != null)
+            {
+                if (scanOutput.Contains("Threat "))
+                {
+                    Alert($"THREAT: windows defender identified file {path} as malicious");
+                    Alert($"Scan output: {scanOutput}");
+                    Alert($"Deleting file {path}...");
+                    File.Delete(path);
+                    scanProcess.Kill();
+                    return;
+                }
+            }
         }
         private static bool IsFileSuspicious(string path)
         {
@@ -56,7 +87,7 @@ namespace SharpEye
                 if (IsFileSuspicious(filePath))
                 {
                     Alert($"file {file.Name} seems suspicious...");
-                    ScanWithAntivirus(filePath);
+                    ScanFile(filePath);
                 }
             }
         }
@@ -136,6 +167,10 @@ namespace SharpEye
             }
             // add interaction with windows defender 
             // maybe encrypt the log file too? 
+            // implement workers cause we're potentially scanning a lot of files and it shouldn't take forever
+            // make a fingerprint of the files that are already identified as malicious before you delete them
+            // so you can scan more quickly if there's a spreaded worm or something
+            // also ask for privilege otherwise the program can't actually do anything
             Console.WriteLine("Updating log file with last access dates...");
             CreateLog(Path.Combine(path, "LogAccessTime.txt"), true);
 
@@ -143,4 +178,3 @@ namespace SharpEye
         }
     }
 }
-
