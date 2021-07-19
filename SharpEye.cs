@@ -31,9 +31,34 @@ namespace SharpEye
     }
     class Program
     {
-        private static void ScanDir(string path)
+        private static void ScanWithAntivirus(string path)
         {
 
+        }
+        private static bool IsFileSuspicious(string path)
+        {
+            FileVersionInfo versionInfo = FileVersionInfo.GetVersionInfo(path);
+            string comments = versionInfo.Comments;
+            if (comments.Contains("payload") || comments.Contains("Payload") || comments.Contains("RAT"))
+            {
+                return true;
+            }
+            if (versionInfo.CompanyName == string.Empty && Path.GetExtension(path) == ".exe")
+                return true;
+            return false;
+        }
+        private static void ScanDir(string path)
+        {
+            DirectoryInfo dir = new DirectoryInfo(path);
+            foreach (FileInfo file in dir.GetFiles())
+            {
+                string filePath = file.FullName;
+                if (IsFileSuspicious(filePath))
+                {
+                    Alert($"file {file.Name} seems suspicious...");
+                    ScanWithAntivirus(filePath);
+                }
+            }
         }
         private static void CreateLog(string path, bool update = false)
         {
@@ -47,7 +72,11 @@ namespace SharpEye
 
             DirectoryInfo dir = new DirectoryInfo(path);
             foreach (FileInfo file in dir.GetFiles())
+            {
+                if (file.IsReadOnly)
+                    continue; 
                 times.Add(file.LastAccessTimeUtc.ToString("F"));
+            }
 
             File.WriteAllLines(logPath, times.ToArray());
 
@@ -63,9 +92,11 @@ namespace SharpEye
             DirectoryInfo dir = new DirectoryInfo(path);
             foreach (FileInfo file in dir.GetFiles())
             {
+                if (file.IsReadOnly)
+                    continue;
                 if (file.LastAccessTimeUtc.ToString("F") != times[count++])
                 {
-                    string alertMessage = $"since last file check {file.Name} has been accessed, did you access it?";
+                    Alert($"since last file check {file.Name} has been accessed, did you access it?");
                 }
             }
             return true;
@@ -100,13 +131,10 @@ namespace SharpEye
             }
             using (Watcher.Start(ts => Console.WriteLine($"Completed Scan in {ts.TotalSeconds} seconds")))
             {
-                
+                ScanDir(path);
 
             }
-            // if file is .exe, use windows defender 
-            // check the comments for malicious keywords
-            // perform a check in scanDir() using some of the fancy attributes offered by the FileInfo class
-            // print scan time here 
+            // add interaction with windows defender 
             // maybe encrypt the log file too? 
             Console.WriteLine("Updating log file with last access dates...");
             CreateLog(Path.Combine(path, "LogAccessTime.txt"), true);
@@ -115,3 +143,4 @@ namespace SharpEye
         }
     }
 }
+
