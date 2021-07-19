@@ -165,7 +165,6 @@ namespace SharpEye
                 ScanDir(path);
 
             }
-            // add interaction with windows defender 
             // maybe encrypt the log file too? 
             // implement workers cause we're potentially scanning a lot of files and it shouldn't take forever
             // make a fingerprint of the files that are already identified as malicious before you delete them
