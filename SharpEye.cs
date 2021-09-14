@@ -2,6 +2,8 @@ using System;
 using System.Diagnostics;
 using System.Collections.Generic;
 using System.IO;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace SharpEye
 {
@@ -31,6 +33,9 @@ namespace SharpEye
     }
     class Program
     {
+        static string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+        static MD5CryptoServiceProvider md5 = new MD5CryptoServiceProvider();
+        static Encoding enc = ASCIIEncoding.ASCII;
         private static void ScanFile(string path)
         {
             Process scanProcess = new Process();
@@ -59,12 +64,19 @@ namespace SharpEye
                 {
                     Alert($"THREAT: windows defender identified file {path} as malicious");
                     Alert($"Scan output: {scanOutput}");
-                    Alert($"Deleting file {path}...");
+                    Alert($"Adding file hash to collection, Deleting file {path}...");
                     File.Delete(path);
                     scanProcess.Kill();
+                    // add to database 
                     return;
                 }
             }
+        }
+        private static bool isInDatabase(string path, string[] hashes)
+        {
+            byte[] currHash = md5.ComputeHash(File.ReadAllBytes(path));
+            return Array.IndexOf(hashes, enc.GetString(currHash)) != -1;
+            // indexOf returns -1 if it can't find the item in the array
         }
         private static bool IsFileSuspicious(string path)
         {
@@ -78,8 +90,9 @@ namespace SharpEye
                 return true;
             return false;
         }
-        private static void ScanDir(string path)
+        private static void ScanDir(string path, string hashesPath)
         {
+            string[] hashes = File.ReadAllLines(hashesPath);
             DirectoryInfo dir = new DirectoryInfo(path);
             foreach (FileInfo file in dir.GetFiles())
             {
@@ -87,17 +100,22 @@ namespace SharpEye
                 if (IsFileSuspicious(filePath))
                 {
                     Alert($"file {file.Name} seems suspicious...");
-                    ScanFile(filePath);
+                    if (!isInDatabase(filePath,hashes))
+                        ScanFile(filePath);
+                    else
+                    {
+                        Console.WriteLine("found copy of a malicious file...");
+                        File.Delete(filePath);
+                    }
                 }
             }
         }
-        private static void CreateLog(string path, bool update = false)
+        private static void CreateLog(string path,string logPath, bool update = false)
         {
-            string logPath = Path.Combine(path, "LogAccessTime.txt");
             if (!update)
             {
                 File.Create(logPath);
-                File.SetAttributes(logPath, FileAttributes.Hidden | File.GetAttributes(logPath));
+                File.SetAttributes(logPath, FileAttributes.Hidden);
             }
             List<string> times = new List<string>();
 
@@ -114,9 +132,9 @@ namespace SharpEye
         }
         static bool AlertForAccess(string path)
         {
-            string logPath = Path.Combine(path, "LogAccessTime.txt");
+            string logPath = Path.Combine(baseDir,"logAccessTime.txt");
             if (!File.Exists(logPath)){
-                CreateLog(path); return false;
+                CreateLog(path,logPath); return false;
             }
             int count = 0;
             string[] times = File.ReadAllLines(logPath);
@@ -130,6 +148,7 @@ namespace SharpEye
                     Alert($"since last file check {file.Name} has been accessed, did you access it?");
                 }
             }
+            CreateLog(path, logPath, true);
             return true;
 
         }
@@ -146,7 +165,11 @@ namespace SharpEye
         }
         static void Main(string[] args)
         {
-            Console.Title = "Sharp Eye 1.0"
+            string hashesFilesDir = Path.Combine(baseDir, "hashes");
+            if (Directory.Exists(hashesFilesDir))
+            {
+                Directory.CreateDirectory(hashesFilesDir);
+            }
             string path;
             if (args.Length < 1)
                 path = AskForPath();
@@ -157,22 +180,24 @@ namespace SharpEye
                 Alert("ERROR: Couldn't find the path specified");
                 path = AskForPath();
             }
+            byte[] hashAsBytes = md5.ComputeHash(enc.GetBytes(path));
+            string hashesPath = Path.Combine(
+                hashesFilesDir, enc.GetString(hashAsBytes) + ".txt");
+            if (File.Exists(hashesPath)){
+                File.Create(hashesPath);
+                File.SetAttributes(hashesPath, FileAttributes.Hidden);
+            }
             if (!AlertForAccess(path))
             {
                 Alert("Couldn't locate log file, is this your first time testing this directory?", false);
             }
             using (Watcher.Start(ts => Console.WriteLine($"Completed Scan in {ts.TotalSeconds} seconds")))
             {
-                ScanDir(path);
+                ScanDir(path,hashesPath);
 
             }
-            // maybe encrypt the log file too? 
             // implement workers cause we're potentially scanning a lot of files and it shouldn't take forever
-            // make a fingerprint of the files that are already identified as malicious before you delete them
-            // so you can scan more quickly if there's a spreaded worm or something
             // also ask for privilege otherwise the program can't actually do anything
-            Console.WriteLine("Updating log file with last access dates...");
-            CreateLog(Path.Combine(path, "LogAccessTime.txt"), true);
 
                 
         }
